@@ -95,7 +95,7 @@ class Assets {
 	 */
 	public function hook_critical_css(): void {
 
-		$response = wp_remote_get( TEST_CI_CD_BUILD_URI . '/inline.css' );   // load template output in buffer.
+		$response = vip_safe_wp_remote_get( TEST_CI_CD_BUILD_URI . '/inline.css' );   // load template output in buffer.
 
 		if ( ! is_wp_error( $response ) ) {
 			$css = wp_remote_retrieve_body( $response );
