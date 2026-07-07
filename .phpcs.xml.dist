@@ -20,7 +20,8 @@
 	<!-- Ignoring Files and Folders:
 		https://github.com/squizlabs/PHP_CodeSniffer/wiki/Advanced-Usage#ignoring-files-and-folders -->
 	<exclude-pattern>./themes/twentytwentyfive/</exclude-pattern>
-	<exclude-pattern>./themes/test-ci-cd/</exclude-pattern>
+	<exclude-pattern>*/assets/build/</exclude-pattern>
+	<exclude-pattern>*/assets/node_modules/</exclude-pattern>
 	<exclude-pattern>./node_modules/</exclude-pattern>
 	<exclude-pattern>./vendor/</exclude-pattern>
 	<exclude-pattern>./plugins/hello.php</exclude-pattern>
