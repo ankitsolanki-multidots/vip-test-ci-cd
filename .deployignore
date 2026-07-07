@@ -35,3 +35,17 @@ node_modules/
 tests/
 docs/
 /config/
+
+# Theme asset tooling (production uses compiled files in assets/build/)
+themes/*/assets/src/
+themes/*/assets/bin/
+themes/*/assets/node_modules/
+themes/*/assets/package.json
+themes/*/assets/package-lock.json
+themes/*/assets/webpack.config.js
+themes/*/assets/postcss.config.js
+themes/*/assets/.eslintrc.json
+themes/*/assets/.eslintignore
+themes/*/assets/.stylelintrc.json
+themes/*/assets/.nvmrc
+themes/*/assets/.npmrc

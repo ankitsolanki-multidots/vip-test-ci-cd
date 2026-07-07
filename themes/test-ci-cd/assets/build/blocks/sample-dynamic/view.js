@@ -1,1 +1,1 @@
-!function(){"use strict";jQuery(document).ready((function(){console.log("Sample Dynamic Front JS")}))}();
+!function(){"use strict";jQuery(document).ready(function(){console.log("Sample Dynamic Front JS")})}();

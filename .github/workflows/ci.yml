@@ -47,13 +47,22 @@ jobs:
       - name: Run PHPUnit tests
         run: composer run test
 
-      # @TODO: Add project-specific build steps as needed.
-      #
-      # - name: Install NPM dependencies and build assets
-      #   run: npm ci && npm run build
-      #
-      # - name: Install production PHP dependencies
-      #   run: composer install --no-dev --no-interaction
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: themes/test-ci-cd/assets/.nvmrc
+          cache: npm
+          cache-dependency-path: themes/test-ci-cd/assets/package-lock.json
+
+      - name: Install NPM dependencies and build theme assets
+        working-directory: themes/test-ci-cd/assets
+        run: npm ci && npm run build
+
+      - name: Verify theme build output
+        run: |
+          test -f themes/test-ci-cd/assets/build/main.js
+          test -f themes/test-ci-cd/assets/build/main.css
+          test -f themes/test-ci-cd/assets/build/inline.css
 
       - name: Create build directory
         run: mkdir -p build
