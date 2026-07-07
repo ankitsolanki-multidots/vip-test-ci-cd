@@ -127,7 +127,7 @@ fi
 
 echo "Syncing files... quietly"
 
-rsync --delete -a "${SRC_DIR}/" "${BUILD_DIR}" --exclude='.git/'
+rsync --delete -a "${SRC_DIR}/" "${BUILD_DIR}" --exclude='.git/' --exclude='vendor/'
 
 # gitignore override
 # To allow commiting built files in the build branch (which are typically ignored)
