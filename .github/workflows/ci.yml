@@ -29,6 +29,21 @@ jobs:
       - name: Check out source code
         uses: actions/checkout@v4
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      # Uses packages from composer.json (automattic/vipwpcs, phpcompatibility/phpcompatibility-wp)
+      # and rules from .phpcs.xml.dist (WordPress-VIP-Go, PHPCompatibilityWP).
+      - name: Run PHPCS (VIP Coding Standards)
+        run: composer run phpcs
+
       # @TODO: Add project-specific build steps as needed.
       #
       # - name: Install NPM dependencies and build assets
@@ -36,10 +51,6 @@ jobs:
       #
       # - name: Install production PHP dependencies
       #   run: composer install --no-dev --no-interaction
-
-      # Optional: run PHPCS before deploying (uses dev dependencies from composer.json).
-      # - name: Install dev dependencies and run PHPCS
-      #   run: composer install --no-interaction && vendor/bin/phpcs
 
       - name: Create build directory
         run: mkdir -p build
