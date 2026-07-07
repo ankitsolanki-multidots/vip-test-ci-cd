@@ -1,0 +1,232 @@
+@use '../abstracts';
+
+.admin-bar .test-ci-cd-header {
+    top: 32px;
+
+    @include abstracts.media-breakpoint( max-767 ) {
+        top: 46px;
+    }
+
+   &.fixed-header {
+       top: 32px;
+
+       @include abstracts.media-breakpoint( max-767 ) {
+            top: 0;
+        }
+    }
+}
+.test-ci-cd-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    transition: all .25s cubic-bezier(.55,.085,.68,.53);
+    box-shadow: 0 5px 10px 0 rgba(50, 50, 50, 0.08);
+
+    .site-title {
+        font-size: 26px;
+        font-weight: 700;
+    } 
+    
+    &.fixed-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+    }
+}
+
+.test-ci-cd-menu {
+    @mixin menus-font-style { 
+        font-size: 15px;
+        font-weight: 500;
+        line-height: 26px;
+    }
+    @mixin menus-list-style { 
+        position: relative;
+        display: inline-block;
+    }
+
+
+    @include abstracts.media-breakpoint( min-768 ) {
+        ul { 
+            position: relative;
+            text-align: right;
+
+            li {
+                @include menus-list-style();
+                margin-right: 30px;
+
+                a {
+                    @include menus-font-style();
+                    position: relative;
+                    z-index: 999;
+                }
+
+                .children,
+                .sub-menu {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    z-index: 1000;
+                    display: none;
+                    float: left;
+                    padding: 0.5rem 0;
+                    margin: 0.125rem 0 0;
+                    text-align: left;
+                    background-clip: padding-box;
+                    border: 1px solid #e1e1e5;
+                    background-color: abstracts.$white-theme-color;
+                    margin-top: 0;
+                    min-width: 15rem;
+                    box-shadow: 3px 6px 14px 0 rgba(0,0,0,0.25);
+
+                    li {
+                        margin-right: 0;
+                        display: block;
+                        padding: 10px;
+                        border-bottom: 1px solid #e1e1e5; 
+
+                        &:last-child {
+                            border-bottom: none; 
+                        }
+
+                        .children,
+                        .sub-menu {
+                            display: none;
+                        }
+
+                        &:hover {
+                            .children,
+                            .sub-menu {
+                                display: block;
+                                right: 100%;
+                                left: initial;
+                                top: -3px;  
+                            }
+                        }
+        
+                    }
+                }
+                
+                &:hover {
+                    .children,
+                    .sub-menu {
+                        display: inline-block;
+                    }
+                }
+                
+                &:last-child {
+                    margin-right: 0;
+                }
+                &:nth-child(3),
+                &:nth-child(4),
+                &:nth-child(5),
+                &:nth-child(6){
+                    .children,
+                    .sub-menu {
+                        left: inherit;
+                        right: 0;
+                    }
+                }
+            }
+        }
+    }
+    @include abstracts.media-breakpoint( max-767 ) { 
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100vh;
+        left: -100%;
+        z-index: 9;
+        padding-top: 75px;
+        background-color: abstracts.$white-theme-color;;
+        overflow: auto;
+        transition-property: left;
+        transition-duration: .2s;
+        transition-timing-function: cubic-bezier(.455,.03,.515,.955);
+
+        ul {
+            > li {
+               @include menus-list-style();
+               width: 100%;
+               border-top: 1px solid #e1e1e5; 
+               
+               a {
+                   @include  menus-font-style();
+                   margin: 0;
+                   padding: 13px;
+                   display: inline-block;
+                   width: calc(100% - 60px);
+               }
+
+               &.menu-item-has-children {
+                   &::after {
+                       content: "+";
+                       font-family: dashicons;
+                       position: absolute;
+                       top: 11px;
+                       right: 10px;
+                       font-size: 18px;
+                       width: 20px;
+                       text-align: center;
+                   }
+                   
+                   &.active-sub::after {
+                       content: "-";
+                   }
+
+                   .sub-menu,
+                   .children {
+                       display: none;
+                       border-top: 1px solid #e1e1e5; 
+                       background-color: #f3f3f3;
+
+                       .menu-item-has-children {
+                           &::after {
+                               content: none;
+                           }
+                           ul {
+                               li {
+                                   a {
+                                       padding-left: 30px;
+                                   }
+                               }
+                           }
+               
+                       }
+                       
+                   }
+               }
+
+               &:first-child {
+                   border-top: none;
+               }
+           }
+        }
+    }
+}
+
+.main-navigation {
+    .menu-toggle {
+        display: none;
+        @include abstracts.media-breakpoint( max-767 ) {
+            display: block;
+            z-index: 999;
+            position: relative;
+            background-color: transparent;
+            border: none;
+            margin-left: auto;
+        }
+    }
+
+    &.toggled{
+        @include abstracts.media-breakpoint( max-767 ) {
+            .test-ci-cd-menu {
+                left: 0;
+            }
+        }
+    }  
+}

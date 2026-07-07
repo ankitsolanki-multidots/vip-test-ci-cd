@@ -1,0 +1,7 @@
+@use '../../scss/abstracts';
+
+.wp-block-test-ci-cd-sample-block {
+    background-color: abstracts.$green-theme-color;
+    color: abstracts.$white-theme-color;
+    padding: 5px 10px;
+}

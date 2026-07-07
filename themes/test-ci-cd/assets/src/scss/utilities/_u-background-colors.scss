@@ -1,0 +1,12 @@
+@use '../abstracts';
+
+// Background Color
+.u-bg-white{
+    background-color: abstracts.$white-theme-color;
+}
+.u-bg-gray{
+    background-color: abstracts.$gray-theme-color;
+}
+.u-bg-lightgray{
+    background-color: abstracts.$lightgray-theme-color;
+}

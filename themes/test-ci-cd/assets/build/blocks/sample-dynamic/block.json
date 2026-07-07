@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "name": "test-ci-cd/sample-dynamic",
+  "version": "0.1.0",
+  "title": "Sample Dynamic",
+  "apiVersion": 3,
+  "category": "test-ci-cd",
+  "icon": "lock",
+  "description": "Sample Dynamic block.",
+  "keywords": [
+    "sample",
+    "Dynamic"
+  ],
+  "supports": {
+    "html": false
+  },
+  "textdomain": "test-ci-cd",
+  "attributes": {
+    "heading": {
+      "type": "string",
+      "default": "This is Default Heading"
+    }
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "file:./view.js"
+  ],
+  "editorStyle": "file:./index.css",
+  "style": "file:./style-index.css"
+}

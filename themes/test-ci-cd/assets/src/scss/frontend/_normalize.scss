@@ -1,0 +1,142 @@
+@use '../abstracts';
+
+/*--------------------------------------------------------------
+# Normalize
+--------------------------------------------------------------*/
+html,
+body,
+div,
+span,
+applet,
+object,
+iframe,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+blockquote,
+pre,
+a,
+abbr,
+acronym,
+address,
+big,
+cite,
+code,
+del,
+dfn,
+em,
+font,
+ins,
+kbd,
+q,
+s,
+samp,
+small,
+strike,
+strong,
+sub,
+sup,
+tt,
+var,
+dl,
+dt,
+dd,
+ol,
+ul,
+li,
+fieldset,
+form,
+label,
+legend,
+table,
+caption,
+tbody,
+tfoot,
+thead,
+tr,
+th,
+td {
+	border: 0;
+	outline: 0;
+	padding: 0;
+	vertical-align: baseline;
+}
+
+html {
+	-webkit-font-smoothing: none;
+	text-rendering: optimizeLegibility !important;
+	-webkit-font-smoothing: antialiased !important;
+	overflow-x: hidden;
+}
+
+body {
+	margin: 0;
+	overflow-x: hidden;
+}
+
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+main,
+menu,
+nav,
+section,
+summary {
+	display: block;
+}
+
+a:active {
+	outline: 0;
+}
+
+figure {
+	margin: 0;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+	color: inherit;
+	font: inherit;
+	margin: 0;
+}
+
+input {
+	&[type="search"],
+	&[type="text"],
+	&[type="password"] {
+		padding: 8px;
+		flex-grow: 1;
+		min-width: 3em;
+		border: 1px solid #949494;
+		font-size: inherit;
+		font-family: inherit;
+		line-height: inherit;
+	}
+}
+
+input,
+button {
+	&[type="submit"] {
+		background: #f7f7f7;
+		border: 1px solid #ccc;
+		padding: 8px 0.625em;
+		color: #32373c;
+		margin-left: 0.625em;
+		word-break: normal;
+		font-size: inherit;
+		font-family: inherit;
+		line-height: inherit;
+		cursor: pointer;
+	}
+}

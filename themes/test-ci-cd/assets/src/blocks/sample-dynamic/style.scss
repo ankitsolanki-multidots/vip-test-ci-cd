@@ -1,0 +1,5 @@
+@use '../../scss/abstracts';
+
+.wp-block-test-ci-cd-sample-dynamic {
+    color: abstracts.$primary-theme-color;
+}
