@@ -21,6 +21,7 @@
 	"license": "MIT",
 	"private": true,
 	"devDependencies": {
+		"@babel/runtime": "^8.0.0",
 		"@wordpress/scripts": "^28.2.0",
 		"@wordpress/stylelint-config": "^22.2.0",
 		"camelcase": "^6.0.0",
