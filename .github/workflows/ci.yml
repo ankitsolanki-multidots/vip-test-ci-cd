@@ -65,7 +65,18 @@ jobs:
           test -f themes/test-ci-cd/assets/build/inline.css
 
       # REQUIRED: Push build artifacts to the {branch}-built branch using VIP's deploy script.
-      - name: Deploy built branch to GitHub
+      #- name: Deploy built branch to GitHub
+      #  run: |
+      #    export GITHUB_AUTH_TOKEN=$(echo -n "x-access-token:${{ secrets.GITHUB_TOKEN }}" | base64 -w 0)
+      #    bash <(curl -s "https://raw.githubusercontent.com/Automattic/vip-go-build/master/deploy.sh")
+
+      - name: Deploy -built branch to github
         run: |
-          export GITHUB_AUTH_TOKEN=$(echo -n "x-access-token:${{ secrets.GITHUB_TOKEN }}" | base64 -w 0)
-          bash <(curl -s "https://raw.githubusercontent.com/Automattic/vip-go-build/master/deploy.sh")
+          export GITHUB_AUTH_TOKEN=$(echo -n "x-access-token:${GITHUB_TOKEN}" | base64 -w 0)
+          export GITHUB_TOKEN=""
+          ./deploy.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+     # - name: Verify that -built branch was deployed correctly
+     #   run: ./tests/verify-gha.sh
