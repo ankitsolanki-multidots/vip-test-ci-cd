@@ -1,0 +1,72 @@
+name: CI (VIP Build and Deploy)
+
+on:
+  push:
+    # REQUIRED: Prevent endless loops of deploy scripts by not building from a branch
+    # name that includes a `-built` suffix.
+    branches-ignore:
+      - "**-built"
+      - "**-built-**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # The suffix appended to the current branch name when deploying the built branch.
+      # Example: pushing to `develop` creates/updates `develop-built`.
+      #
+      # NOTE: The VIP environment must be configured to deploy from the built branch.
+      # https://docs.wpvip.com/code-deployment/default-deployment/deploying-branches/update/
+      VIP_DEPLOY_SUFFIX: "-built"
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+
+      # @TODO: Add project-specific build steps as needed.
+      #
+      # - name: Install NPM dependencies and build assets
+      #   run: npm ci && npm run build
+      #
+      # - name: Install production PHP dependencies
+      #   run: composer install --no-dev --no-interaction
+
+      # Optional: run PHPCS before deploying (uses dev dependencies from composer.json).
+      # - name: Install dev dependencies and run PHPCS
+      #   run: composer install --no-interaction && vendor/bin/phpcs
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Create build readme
+        run: |
+          echo -e "# Continuous Integration & Continuous Deployment on VIP\n\nThis was built in CI on $(date)" > build/README.md
+
+      - name: Add build info to ./build/README.md
+        run: |
+          echo -e "\nThis \`${GITHUB_REF_NAME}${VIP_DEPLOY_SUFFIX}\` branch was created automatically" \
+            "when a commit or merge was made to the base branch, \`${GITHUB_REF_NAME}\`, using" \
+            "[a GitHub Actions workflow](../.github/workflows/), which can be **customized**." >> build/README.md
+
+          echo -e "\nSee the WordPress VIP documentation about [Build and Deploy](https://docs.wpvip.com/code-deployment/default-deployment/build-and-deploy/)." >> build/README.md
+
+      - name: Test the build
+        run: |
+          if [ -f build/README.md ]; then
+            echo "Build succeeded"
+          else
+            echo "Build failed, file missing"
+            exit 1
+          fi
+
+      # REQUIRED: Push build artifacts to the {branch}-built branch using VIP's deploy script.
+      - name: Deploy built branch to GitHub
+        run: |
+          export GITHUB_AUTH_TOKEN=$(echo -n "x-access-token:${{ secrets.GITHUB_TOKEN }}" | base64 -w 0)
+          bash <(curl -s "https://raw.githubusercontent.com/Automattic/vip-go-build/master/deploy.sh")
