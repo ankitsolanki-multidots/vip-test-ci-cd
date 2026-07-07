@@ -45,3 +45,6 @@ phpcs.xml
 
 # Composer (repo root only)
 /vendor/
+
+# Theme compiled assets (built in CI)
+/themes/test-ci-cd/assets/build/

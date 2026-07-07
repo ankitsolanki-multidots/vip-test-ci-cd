@@ -64,30 +64,6 @@ jobs:
           test -f themes/test-ci-cd/assets/build/main.css
           test -f themes/test-ci-cd/assets/build/inline.css
 
-      - name: Create build directory
-        run: mkdir -p build
-
-      - name: Create build readme
-        run: |
-          echo -e "# Continuous Integration & Continuous Deployment on VIP\n\nThis was built in CI on $(date)" > build/README.md
-
-      - name: Add build info to ./build/README.md
-        run: |
-          echo -e "\nThis \`${GITHUB_REF_NAME}${VIP_DEPLOY_SUFFIX}\` branch was created automatically" \
-            "when a commit or merge was made to the base branch, \`${GITHUB_REF_NAME}\`, using" \
-            "[a GitHub Actions workflow](../.github/workflows/), which can be **customized**." >> build/README.md
-
-          echo -e "\nSee the WordPress VIP documentation about [Build and Deploy](https://docs.wpvip.com/code-deployment/default-deployment/build-and-deploy/)." >> build/README.md
-
-      - name: Test the build
-        run: |
-          if [ -f build/README.md ]; then
-            echo "Build succeeded"
-          else
-            echo "Build failed, file missing"
-            exit 1
-          fi
-
       # REQUIRED: Push build artifacts to the {branch}-built branch using VIP's deploy script.
       - name: Deploy built branch to GitHub
         run: |
