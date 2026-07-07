@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "name": "test-ci-cd/sample",
+  "version": "0.1.0",
+  "title": "Sample Block",
+  "apiVersion": 3,
+  "category": "test-ci-cd",
+  "icon": "lock",
+  "description": "Sample block.",
+  "keywords": ["sample", "Block"],
+  "supports": {
+    "html": false
+  },
+  "textdomain": "test-ci-cd",
+  "attributes": {
+    "heading": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "editorScript": "file:./index.js",
+  "style": "file:./style-index.css"
+}
