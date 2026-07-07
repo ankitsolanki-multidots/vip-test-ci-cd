@@ -3,7 +3,7 @@
         'name' => 'automattic/vip-go-skeleton',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '59ca1766af6edea1e7116eaf437c01bfe2267af1',
+        'reference' => 'f5c61b7422855afadea8101acff0bf732f37fa2c',
         'type' => 'library',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -22,7 +22,7 @@
         'automattic/vip-go-skeleton' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '59ca1766af6edea1e7116eaf437c01bfe2267af1',
+            'reference' => 'f5c61b7422855afadea8101acff0bf732f37fa2c',
             'type' => 'library',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
