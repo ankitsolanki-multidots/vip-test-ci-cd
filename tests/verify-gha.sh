@@ -23,7 +23,7 @@ echo ""
 echo "## Running some tests"
 echo ""
 
-README_FILE="build/README.md"
+README_FILE="themes/test-ci-cd/assets/build/main.js"
 if [ ! -f "${README_FILE}" ]; then
 	echo "- Generated file (${README_FILE}) was not found; something is broken!": exit 1
 else
@@ -32,7 +32,7 @@ fi
 
 echo ""
 
-SKIPPED_FILE="fixtures/skip-this-file.txt"
+SKIPPED_FILE="README.md"
 if [ -f "${SKIPPED_FILE}" ]; then
 	echo "- Found file (${SKIPPED_FILE}) that should have been ignored; something is broken!"; exit 1
 else

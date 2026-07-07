@@ -78,5 +78,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-     # - name: Verify that -built branch was deployed correctly
-     #   run: ./tests/verify-gha.sh
+      - name: Verify that -built branch was deployed correctly
+        run: ./tests/verify-gha.sh
