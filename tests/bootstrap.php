@@ -15,6 +15,7 @@ if ( ! defined( 'TEST_CI_CD_THEME_PATH' ) ) {
 
 require_once TEST_CI_CD_THEME_PATH . '/includes/traits/trait-singleton.php';
 require_once TEST_CI_CD_THEME_PATH . '/includes/classes/class-register-post-types.php';
+require_once TEST_CI_CD_THEME_PATH . '/includes/classes/class-assets.php';
 
 /**
  * Reset singleton state between tests.
