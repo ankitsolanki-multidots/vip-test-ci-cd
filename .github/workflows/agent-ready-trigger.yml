@@ -194,8 +194,8 @@ jobs:
           agent models 2>&1 | head -n 40 || true
           echo "== smoke prompt =="
           # Headless CI needs --trust; disable sandbox so git/gh work.
-          # Prefer a stable model id; override with repo variable CURSOR_AGENT_MODEL if needed.
-          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          #   Prefer a stable model via CURSOR_AGENT_MODEL if "auto" is rejected for your account.
+          MODEL="${CURSOR_AGENT_MODEL:-auto}"
           agent -p --force --trust --sandbox disabled --output-format text --model "${MODEL}" \
             "Reply with exactly: cursor-ci-ok"
 
@@ -211,7 +211,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
-          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          MODEL="${CURSOR_AGENT_MODEL:-auto}"
           PROMPT_FILE="$(mktemp)"
           cat > "${PROMPT_FILE}" <<EOF
           You are planning the implementation for issue #${ISSUE_NUMBER}.
@@ -256,7 +256,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
-          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          MODEL="${CURSOR_AGENT_MODEL:-auto}"
           PROMPT_FILE="$(mktemp)"
           cat > "${PROMPT_FILE}" <<EOF
           You are implementing issue #${ISSUE_NUMBER}.
@@ -288,7 +288,9 @@ jobs:
         id: open-pr
         if: needs.resolve-issue.outputs.is_high == 'false' && success()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer a PAT (AGENT_GITHUB_TOKEN) so PR creation works even when Actions
+          # is not allowed to create PRs with GITHUB_TOKEN. Falls back to GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
           ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
           REPO: ${{ github.repository }}
@@ -318,13 +320,39 @@ jobs:
             printf '\n\nCloses #%s\n' "${ISSUE_NUMBER}" >> "${BODY_FILE}"
 
             BASE="${DEFAULT_BRANCH:-main}"
+            set +e
             PR_URL="$(gh pr create \
               --repo "${REPO}" \
               --base "${BASE}" \
               --head "${BRANCH}" \
               --title "${ISSUE_TITLE}" \
-              --body-file "${BODY_FILE}")"
+              --body-file "${BODY_FILE}" 2>&1)"
+            CREATE_STATUS=$?
+            set -e
             rm -f "${BODY_FILE}"
+
+            if [ "${CREATE_STATUS}" -ne 0 ]; then
+              echo "${PR_URL}"
+              COMPARE_URL="https://github.com/${REPO}/compare/${BASE}...${BRANCH}?expand=1"
+              COMMENT_FILE="$(mktemp)"
+              {
+                echo "⚠️ Agent pushed branch \`${BRANCH}\` but could not open a PR."
+                echo ""
+                echo '```'
+                echo "${PR_URL}"
+                echo '```'
+                echo ""
+                echo "**Fix (pick one):**"
+                echo "1. Repo **Settings → Actions → General → Workflow permissions** → enable **Allow GitHub Actions to create and approve pull requests**, then re-run."
+                echo "2. Or add a PAT with \`repo\` scope as secret \`AGENT_GITHUB_TOKEN\` and re-run."
+                echo ""
+                echo "**Open PR manually:** ${COMPARE_URL}"
+              } > "${COMMENT_FILE}"
+              gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body-file "${COMMENT_FILE}"
+              rm -f "${COMMENT_FILE}"
+              exit 1
+            fi
+
             echo "Opened ${PR_URL}"
             PR_NUMBER="$(echo "${PR_URL}" | grep -oE '[0-9]+$')"
           fi
