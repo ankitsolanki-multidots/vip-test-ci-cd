@@ -1,1 +1,1 @@
-{"version":2,"defects":{"TEST_CI_CD\\Tests\\RegisterPostTypesTest::test_register_movie_cpt_registers_movies_post_type":5},"times":{"TEST_CI_CD\\Tests\\RegisterPostTypesTest::test_register_movie_cpt_registers_movies_post_type":0.064}}
+{"version":2,"defects":{"TEST_CI_CD\\Tests\\RegisterPostTypesTest::test_register_movie_cpt_registers_movies_post_type":5},"times":{"TEST_CI_CD\\Tests\\RegisterPostTypesTest::test_register_movie_cpt_registers_movies_post_type":0.069}}
