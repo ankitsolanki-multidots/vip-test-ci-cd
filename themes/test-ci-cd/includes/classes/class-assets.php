@@ -47,7 +47,8 @@ class Assets {
 		 */
 		add_action( 'enqueue_block_assets', array( $this, 'enqueue_editor_assets' ) );
 		add_action( 'wp_footer', array( $this, 'enqueue_editor_assets' ) );
-		add_action( 'upload_mimes', array( $this, 'add_file_types_to_uploads' ) ); //phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.upload_mimes
+		add_filter( 'upload_mimes', array( $this, 'add_file_types_to_uploads' ) ); //phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.upload_mimes
+		add_filter( 'wp_check_filetype_and_ext', array( $this, 'fix_svg_filetype' ), 10, 4 );
 
 		add_filter( 'script_loader_tag', array( $this, 'script_additional_attrs' ), 10, 2 );
 		add_action( 'wp_print_footer_scripts', array( $this, 'lazy_load_scripts' ) );
@@ -182,13 +183,40 @@ class Assets {
 	 * @since 1.0.0
 	 */
 	public function add_file_types_to_uploads( array $file_types ): array {
-		if ( is_user_logged_in() && current_user_can( 'administrator' ) ) {
-			$new_filetypes        = array();
-			$new_filetypes['svg'] = 'image/svg+xml';
-			$file_types           = array_merge( $file_types, $new_filetypes );
+		if ( is_user_logged_in() && current_user_can( 'upload_files' ) ) {
+			$file_types['svg']  = 'image/svg+xml';
+			$file_types['svgz'] = 'image/svg+xml';
 		}
 
 		return $file_types;
+	}
+
+	/**
+	 * Ensure WordPress recognizes SVG file extensions during upload validation.
+	 *
+	 * @param array  $data     File data array.
+	 * @param string $file     Full path to the file.
+	 * @param string $filename The name of the file.
+	 * @param array  $mimes    Allowed mime types.
+	 *
+	 * @return array
+	 * @since 1.0.0
+	 */
+	public function fix_svg_filetype( array $data, string $file, string $filename, array $mimes ): array {
+		unset( $file, $mimes );
+
+		if ( ! is_user_logged_in() || ! current_user_can( 'upload_files' ) ) {
+			return $data;
+		}
+
+		$extension = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+
+		if ( in_array( $extension, array( 'svg', 'svgz' ), true ) ) {
+			$data['ext']  = $extension;
+			$data['type'] = 'image/svg+xml';
+		}
+
+		return $data;
 	}
 
 	/**
