@@ -1,9 +1,13 @@
-# Listens for '/approve-plan' comments on issues and resumes ce-work execution.
+# Listens for '/approve-plan' comments on issues and resumes implementation.
 #
 # This workflow is part of the complexity:high flow:
-#   1. agent-ready-trigger.yml fires, Claude runs /ce-plan, commits plan to docs/plans/
-#   2. Claude posts a comment asking for /approve-plan
-#   3. This workflow fires on that comment, verifies the commenter, then runs /ce-work
+#   1. agent-ready-trigger.yml fires, agent writes a plan to docs/plans/
+#   2. Agent posts a comment asking for /approve-plan
+#   3. This workflow fires on that comment, verifies the commenter, then implements
+#
+# Provider routing (mirrors agent-ready-trigger.yml):
+#   cursor (default when AGENT_PROVIDER is unset) → Cursor Agent CLI + CURSOR_API_KEY
+#   claude → Claude Code + CLAUDE_CODE_OAUTH_TOKEN
 #
 # Only collaborators with write or admin permission can approve plans.
 # Non-collaborators receive a reply comment but no agent run is started.
@@ -24,7 +28,7 @@ jobs:
       github.event.issue.pull_request == null &&
       startsWith(github.event.comment.body, '/approve-plan')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
@@ -35,6 +39,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Check commenter permissions
         id: permission-check
@@ -106,10 +117,75 @@ jobs:
               core.setOutput('already_running', 'false');
             }
 
-      - name: Run Claude Code with /ce-work
+      - name: Resolve agent provider
+        id: provider
         if: |
           steps.permission-check.outputs.allowed == 'true' &&
           steps.pr-check.outputs.already_running == 'false'
+        run: |
+          PROVIDER="${{ vars.AGENT_PROVIDER }}"
+          if [ -z "${PROVIDER}" ]; then
+            PROVIDER="cursor"
+          fi
+          echo "provider=${PROVIDER}" >> "$GITHUB_OUTPUT"
+          echo "Using agent provider: ${PROVIDER}"
+
+      - name: Install Cursor CLI
+        if: |
+          steps.permission-check.outputs.allowed == 'true' &&
+          steps.pr-check.outputs.already_running == 'false' &&
+          steps.provider.outputs.provider == 'cursor'
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
+      - name: Run Cursor Agent with approved plan
+        if: |
+          steps.permission-check.outputs.allowed == 'true' &&
+          steps.pr-check.outputs.already_running == 'false' &&
+          steps.provider.outputs.provider == 'cursor'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "CURSOR_API_KEY secret is missing"
+            exit 1
+          fi
+
+          agent -p --force --model composer-2 <<EOF
+          You are implementing issue #${ISSUE_NUMBER}.
+
+          Issue title: ${ISSUE_TITLE}
+
+          A human has approved the plan for this issue. Your job is to implement it.
+
+          Instructions:
+          1. Find the plan file in docs/plans/ that corresponds to this issue
+             (look for a recent plan file — check file dates and titles)
+          2. If a plan file exists, follow it closely
+          3. If no plan file exists, implement from the issue context:
+             gh issue view ${ISSUE_NUMBER} --repo ${REPO}
+          4. Implement the feature per the plan or issue
+          5. Create a branch named agent/issue-${ISSUE_NUMBER}, commit, and open a PR
+             using the template at .github/PULL_REQUEST_TEMPLATE/agent-generated.md if it exists
+          6. Add the 'agent-generated' label to the PR
+
+          Important:
+          - Stay within the issue's defined scope ("Out of scope" is a hard boundary)
+          - Reference the issue number in the PR: "Closes #${ISSUE_NUMBER}"
+          - If blocked or uncertain, comment on the issue asking for clarification
+          EOF
+
+      - name: Run Claude Code with /ce-work
+        if: |
+          steps.permission-check.outputs.allowed == 'true' &&
+          steps.pr-check.outputs.already_running == 'false' &&
+          steps.provider.outputs.provider == 'claude'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
