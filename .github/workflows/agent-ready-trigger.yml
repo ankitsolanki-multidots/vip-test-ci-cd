@@ -266,17 +266,14 @@ jobs:
             echo "PR #${EXISTING} already exists for ${BRANCH}"
             PR_NUMBER="${EXISTING}"
           else
+            BODY_FILE="$(mktemp)"
             TEMPLATE=".github/PULL_REQUEST_TEMPLATE/agent-generated.md"
             if [ -f "${TEMPLATE}" ]; then
-              BODY="$(sed "s/<!--.*-->//g" "${TEMPLATE}")"
-              BODY="${BODY}
-
-Closes #${ISSUE_NUMBER}"
+              cat "${TEMPLATE}" > "${BODY_FILE}"
             else
-              BODY="Closes #${ISSUE_NUMBER}
-
-Automated implementation by the Cursor agent."
+              printf '%s\n' "Automated implementation by the Cursor agent." > "${BODY_FILE}"
             fi
+            printf '\n\nCloses #%s\n' "${ISSUE_NUMBER}" >> "${BODY_FILE}"
 
             BASE="${DEFAULT_BRANCH:-main}"
             PR_URL="$(gh pr create \
@@ -284,17 +281,16 @@ Automated implementation by the Cursor agent."
               --base "${BASE}" \
               --head "${BRANCH}" \
               --title "${ISSUE_TITLE}" \
-              --body "${BODY}")"
+              --body-file "${BODY_FILE}")"
+            rm -f "${BODY_FILE}"
             echo "Opened ${PR_URL}"
             PR_NUMBER="$(echo "${PR_URL}" | grep -oE '[0-9]+$')"
           fi
 
           gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "agent-generated" || true
 
-          # Check off auto-satisfiable acceptance criteria where possible is left to humans;
-          # comment with the PR link for visibility.
-          gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body \
-            "✅ Implementation ready: $(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json url --jq .url)"
+          PR_URL="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json url --jq .url)"
+          gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body "Implementation ready: ${PR_URL}"
 
       - name: Check for missing CURSOR_API_KEY
         if: failure()
