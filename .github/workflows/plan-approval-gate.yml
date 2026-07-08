@@ -147,6 +147,7 @@ jobs:
           steps.provider.outputs.provider == 'cursor'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: ${{ vars.CURSOR_AGENT_MODEL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -157,7 +158,10 @@ jobs:
             exit 1
           fi
 
-          agent -p --force --model composer-2 <<EOF
+          export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
+          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          PROMPT_FILE="$(mktemp)"
+          cat > "${PROMPT_FILE}" <<EOF
           You are implementing issue #${ISSUE_NUMBER}.
 
           Issue title: ${ISSUE_TITLE}
@@ -179,6 +183,9 @@ jobs:
           - Stay within the issue's defined scope ("Out of scope" is a hard boundary)
           - If blocked or uncertain, comment on the issue asking for clarification
           EOF
+          agent -p --force --trust --sandbox disabled --output-format text --model "${MODEL}" \
+            --workspace "${GITHUB_WORKSPACE}" "$(cat "${PROMPT_FILE}")"
+          rm -f "${PROMPT_FILE}"
 
       - name: Open PR for agent branch
         if: |

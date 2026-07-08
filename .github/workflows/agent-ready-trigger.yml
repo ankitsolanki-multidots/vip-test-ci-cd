@@ -182,18 +182,38 @@ jobs:
           fi
           agent --version || true
 
+      - name: Preflight Cursor auth
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: ${{ vars.CURSOR_AGENT_MODEL }}
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
+          echo "== agent status =="
+          agent status || true
+          echo "== agent models (first lines) =="
+          agent models 2>&1 | head -n 40 || true
+          echo "== smoke prompt =="
+          # Headless CI needs --trust; disable sandbox so git/gh work.
+          # Prefer a stable model id; override with repo variable CURSOR_AGENT_MODEL if needed.
+          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          agent -p --force --trust --sandbox disabled --output-format text --model "${MODEL}" \
+            "Reply with exactly: cursor-ci-ok"
+
       - name: Run Cursor Agent — Planning Phase (complexity:high)
         id: cursor-plan
         if: needs.resolve-issue.outputs.is_high == 'true'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: ${{ vars.CURSOR_AGENT_MODEL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
           ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
           REPO: ${{ github.repository }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
-          agent -p --force --model composer-2 <<EOF
+          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          PROMPT_FILE="$(mktemp)"
+          cat > "${PROMPT_FILE}" <<EOF
           You are planning the implementation for issue #${ISSUE_NUMBER}.
 
           Issue title: ${ISSUE_TITLE}
@@ -220,19 +240,25 @@ jobs:
           7. Do NOT change any application code
           8. Do NOT open a pull request
           EOF
+          agent -p --force --trust --sandbox disabled --output-format text --model "${MODEL}" \
+            --workspace "${GITHUB_WORKSPACE}" "$(cat "${PROMPT_FILE}")"
+          rm -f "${PROMPT_FILE}"
 
       - name: Run Cursor Agent — Direct Execution (complexity:low/medium)
         id: cursor-work
         if: needs.resolve-issue.outputs.is_high == 'false'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: ${{ vars.CURSOR_AGENT_MODEL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
           ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
           REPO: ${{ github.repository }}
         run: |
           export PATH="$HOME/.local/bin:$HOME/.cursor/bin:$PATH"
-          agent -p --force --model composer-2 <<EOF
+          MODEL="${CURSOR_AGENT_MODEL:-composer-2.5-fast}"
+          PROMPT_FILE="$(mktemp)"
+          cat > "${PROMPT_FILE}" <<EOF
           You are implementing issue #${ISSUE_NUMBER}.
 
           Issue title: ${ISSUE_TITLE}
@@ -254,6 +280,9 @@ jobs:
           If you are blocked or unclear on something, post a comment on the issue
           asking for clarification rather than guessing.
           EOF
+          agent -p --force --trust --sandbox disabled --output-format text --model "${MODEL}" \
+            --workspace "${GITHUB_WORKSPACE}" "$(cat "${PROMPT_FILE}")"
+          rm -f "${PROMPT_FILE}"
 
       - name: Open PR for agent branch
         id: open-pr
