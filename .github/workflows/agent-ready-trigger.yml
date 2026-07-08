@@ -1,6 +1,11 @@
 # Fires when an issue receives the 'agent-ready' label.
 # Routes to the AI agent configured in the AGENT_PROVIDER repository variable.
 #
+# Triggers:
+#   1. issues: labeled — manual label application (or PAT-based labeling)
+#   2. workflow_run — after Auto-Label Agent-Ready Issues succeeds
+#      (required because GITHUB_TOKEN label adds do NOT fire issues:labeled)
+#
 # Supported providers:
 #   cursor        → Cursor Agent CLI via CURSOR_API_KEY (default)
 #   claude        → Claude Code via anthropics/claude-code-action
@@ -23,22 +28,113 @@ name: Agent-Ready Auto-Trigger
 on:
   issues:
     types: [labeled]
+  workflow_run:
+    workflows: ["Auto-Label Agent-Ready Issues"]
+    types: [completed]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Resolve issue number/title/complexity from either trigger path.
+  resolve-issue:
+    if: |
+      (
+        github.event_name == 'issues' &&
+        github.event.label.name == 'agent-ready'
+      ) || (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      issue_number: ${{ steps.resolve.outputs.issue_number }}
+      issue_title: ${{ steps.resolve.outputs.issue_title }}
+      is_high: ${{ steps.resolve.outputs.is_high }}
+      provider: ${{ steps.resolve.outputs.provider }}
+
+    steps:
+      - name: Download auto-label handoff (workflow_run only)
+        if: github.event_name == 'workflow_run'
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-ready-handoff
+          path: agent-ready-handoff
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Resolve issue context
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const provider = (process.env.AGENT_PROVIDER || '').trim() || 'cursor';
+            core.setOutput('provider', provider);
+            console.log('AGENT_PROVIDER resolved to:', provider);
+
+            let issueNumber = null;
+            let issueTitle = null;
+            let labels = [];
+
+            if (context.eventName === 'issues') {
+              issueNumber = context.payload.issue.number;
+              issueTitle = context.payload.issue.title;
+              labels = context.payload.issue.labels.map(l => l.name);
+              console.log('Triggered by manual/PAT label on issue #' + issueNumber);
+            } else {
+              // workflow_run path — only proceed when auto-label just applied agent-ready
+              const fs = require('fs');
+              const path = 'agent-ready-handoff/payload.json';
+              if (!fs.existsSync(path)) {
+                console.log('No handoff artifact — auto-label did not newly apply agent-ready. Skipping.');
+                core.setOutput('should_run', 'false');
+                core.setOutput('issue_number', '');
+                core.setOutput('issue_title', '');
+                core.setOutput('is_high', 'false');
+                return;
+              }
+              const payload = JSON.parse(fs.readFileSync(path, 'utf8'));
+              issueNumber = payload.issue_number;
+              issueTitle = payload.issue_title;
+              labels = payload.labels || [];
+              console.log('Triggered by auto-label handoff for issue #' + issueNumber);
+
+              // Refresh labels from live issue (includes complexity:* if present)
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              issueTitle = issue.title;
+              labels = issue.labels.map(l => l.name);
+            }
+
+            const isHigh = labels.includes('complexity:high');
+            console.log('Issue labels:', labels.join(', ') || '(none)');
+            console.log('complexity:high:', isHigh);
+
+            core.setOutput('should_run', 'true');
+            core.setOutput('issue_number', String(issueNumber));
+            core.setOutput('issue_title', issueTitle);
+            core.setOutput('is_high', isHigh ? 'true' : 'false');
+        env:
+          AGENT_PROVIDER: ${{ vars.AGENT_PROVIDER }}
+
   # ─────────────────────────────────────────────────────────────────────────────
   # CURSOR (default)
-  # Uses Cursor Agent CLI with CURSOR_API_KEY for complexity-aware execution.
-  #
-  # complexity:high  → plan first, human approves via /approve-plan, then implement
-  # complexity:low/medium (or absent) → implement directly
   # ─────────────────────────────────────────────────────────────────────────────
   trigger-cursor:
+    needs: resolve-issue
     if: |
-      github.event.label.name == 'agent-ready' &&
-      (vars.AGENT_PROVIDER == 'cursor' || vars.AGENT_PROVIDER == '')
+      needs.resolve-issue.outputs.should_run == 'true' &&
+      needs.resolve-issue.outputs.provider == 'cursor'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -50,7 +146,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Agent needs to push branches/PRs
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git
@@ -58,32 +153,20 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine complexity
-        id: complexity
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const labels = context.payload.issue.labels.map(l => l.name);
-            const isHigh = labels.includes('complexity:high');
-            console.log('Issue labels:', labels.join(', '));
-            console.log('complexity:high:', isHigh);
-            core.setOutput('is_high', isHigh ? 'true' : 'false');
-
       - name: Install Cursor CLI
         run: |
           curl https://cursor.com/install -fsS | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           echo "$HOME/.cursor/bin" >> $GITHUB_PATH
 
-      # ── HIGH COMPLEXITY: plan first, then gate on /approve-plan ──────────────
       - name: Run Cursor Agent — Planning Phase (complexity:high)
         id: cursor-plan
-        if: steps.complexity.outputs.is_high == 'true'
+        if: needs.resolve-issue.outputs.is_high == 'true'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
           REPO: ${{ github.repository }}
         run: |
           if [ -z "${CURSOR_API_KEY}" ]; then
@@ -119,15 +202,14 @@ jobs:
           8. Do NOT open a pull request
           EOF
 
-      # ── LOW/MEDIUM COMPLEXITY: execute directly ──────────────────────────────
       - name: Run Cursor Agent — Direct Execution (complexity:low/medium)
         id: cursor-work
-        if: steps.complexity.outputs.is_high == 'false'
+        if: needs.resolve-issue.outputs.is_high == 'false'
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
           REPO: ${{ github.repository }}
         run: |
           if [ -z "${CURSOR_API_KEY}" ]; then
@@ -170,7 +252,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
+              issue_number: Number(process.env.ISSUE_NUMBER),
               body: [
                 '⚠️ **Agent setup incomplete**',
                 '',
@@ -183,18 +265,17 @@ jobs:
                 'Optional: set repository variable `AGENT_PROVIDER` to `cursor` (this is already the default when unset).'
               ].join('\n')
             });
+        env:
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # CLAUDE
-  # Uses Claude Code with Compound Engineering for complexity-aware execution.
-  #
-  # complexity:high  → /ce-plan first, human approves via /approve-plan, then /ce-work
-  # complexity:low/medium (or absent) → /ce-work directly
   # ─────────────────────────────────────────────────────────────────────────────
   trigger-claude:
+    needs: resolve-issue
     if: |
-      github.event.label.name == 'agent-ready' &&
-      vars.AGENT_PROVIDER == 'claude'
+      needs.resolve-issue.outputs.should_run == 'true' &&
+      needs.resolve-issue.outputs.provider == 'claude'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -208,21 +289,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Determine complexity
-        id: complexity
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const labels = context.payload.issue.labels.map(l => l.name);
-            const isHigh = labels.includes('complexity:high');
-            console.log('Issue labels:', labels.join(', '));
-            console.log('complexity:high:', isHigh);
-            core.setOutput('is_high', isHigh ? 'true' : 'false');
-
-      # ── HIGH COMPLEXITY: plan first, then gate on /approve-plan ──────────────
       - name: Run Claude Code — Planning Phase (complexity:high)
         id: claude-plan
-        if: steps.complexity.outputs.is_high == 'true'
+        if: needs.resolve-issue.outputs.is_high == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -236,20 +305,18 @@ jobs:
                 ]
               }
             }
-          # Uncomment to stream the full SDK output into the job log for debugging:
-          # show_full_output: true
           additional_permissions: |
             actions: read
           prompt: |
-            You are planning the implementation for issue #${{ github.event.issue.number }}.
+            You are planning the implementation for issue #${{ needs.resolve-issue.outputs.issue_number }}.
 
-            Issue title: ${{ github.event.issue.title }}
+            Issue title: ${{ needs.resolve-issue.outputs.issue_title }}
 
             This is a complexity:high issue. Your job is to PLAN, not implement.
 
             Instructions:
             1. Read the full issue body:
-               gh issue view ${{ github.event.issue.number }} --repo ${{ github.repository }}
+               gh issue view ${{ needs.resolve-issue.outputs.issue_number }} --repo ${{ github.repository }}
             2. Read CLAUDE.md for project-specific guidance
             3. Read the key files referenced in Technical Notes to understand the codebase
             4. Write a structured implementation plan as a markdown file saved to:
@@ -258,7 +325,7 @@ jobs:
                key technical decisions, and implementation units (each with goal, files,
                approach, and test scenarios)
             5. Commit the plan file to a new branch named:
-               plan/issue-${{ github.event.issue.number }}
+               plan/issue-${{ needs.resolve-issue.outputs.issue_number }}
             6. After committing, post a comment on the issue with:
                - A link to the plan file (GitHub URL)
                - "Implementation plan is ready for review. Reply /approve-plan to begin
@@ -266,10 +333,9 @@ jobs:
             7. Do NOT change any application code
             8. Do NOT open a pull request
 
-      # ── LOW/MEDIUM COMPLEXITY: execute directly ──────────────────────────────
       - name: Run Claude Code — Direct Execution (complexity:low/medium)
         id: claude-work
-        if: steps.complexity.outputs.is_high == 'false'
+        if: needs.resolve-issue.outputs.is_high == 'false'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -283,26 +349,24 @@ jobs:
                 ]
               }
             }
-          # Uncomment to stream the full SDK output into the job log for debugging:
-          # show_full_output: true
           additional_permissions: |
             actions: read
           prompt: |
-            You are implementing issue #${{ github.event.issue.number }}.
+            You are implementing issue #${{ needs.resolve-issue.outputs.issue_number }}.
 
-            Issue title: ${{ github.event.issue.title }}
+            Issue title: ${{ needs.resolve-issue.outputs.issue_title }}
 
             Instructions:
             1. Read the full issue body carefully using the GitHub CLI:
-               gh issue view ${{ github.event.issue.number }} --repo ${{ github.repository }}
+               gh issue view ${{ needs.resolve-issue.outputs.issue_number }} --repo ${{ github.repository }}
             2. Read CLAUDE.md for project-specific guidance
             3. Implement the feature following the acceptance criteria exactly
             4. Stay within the defined scope — "Out of scope" is a hard boundary
             5. Follow the patterns referenced in Technical Notes (read the key files listed there)
             6. Create a branch, commit your changes, and open a PR:
-               - Branch name: agent/issue-${{ github.event.issue.number }}
+               - Branch name: agent/issue-${{ needs.resolve-issue.outputs.issue_number }}
                - PR title should match the issue title
-               - PR body: reference "Closes #${{ github.event.issue.number }}" and summarize what you did
+               - PR body: reference "Closes #${{ needs.resolve-issue.outputs.issue_number }}" and summarize what you did
                - Use the template at .github/PULL_REQUEST_TEMPLATE/agent-generated.md if it exists
             7. Add the 'agent-generated' label to the PR
             8. After the PR is open, update the original issue's acceptance criteria:
@@ -321,27 +385,26 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
+              issue_number: Number(process.env.ISSUE_NUMBER),
               body: [
                 '⚠️ **Agent setup incomplete**',
                 '',
                 'The Claude Code workflow failed. This is usually caused by a missing `CLAUDE_CODE_OAUTH_TOKEN` secret.',
                 '',
-                'To fix: go to **Settings → Secrets and variables → Secrets** and add `CLAUDE_CODE_OAUTH_TOKEN`.',
-                '',
-                'See the [README](../blob/main/README.md) for setup instructions.'
+                'To fix: go to **Settings → Secrets and variables → Secrets** and add `CLAUDE_CODE_OAUTH_TOKEN`.'
               ].join('\n')
             });
+        env:
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # OPENAI CODEX (stub)
-  # TODO: extend this job for your Codex setup.
-  # See https://github.com/openai/codex for the CLI reference.
   # ─────────────────────────────────────────────────────────────────────────────
   trigger-openai-codex:
+    needs: resolve-issue
     if: |
-      github.event.label.name == 'agent-ready' &&
-      vars.AGENT_PROVIDER == 'openai-codex'
+      needs.resolve-issue.outputs.should_run == 'true' &&
+      needs.resolve-issue.outputs.provider == 'openai-codex'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -355,34 +418,20 @@ jobs:
       - name: Run Codex
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
         run: |
-          # TODO: Replace this stub with your Codex invocation.
-          # Example using the Codex CLI:
-          #
-          #   npm install -g @openai/codex
-          #   codex --approval-mode full-auto \
-          #     --model o4-mini \
-          #     "Implement issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
-          #
-          # After implementation, create a PR:
-          #   git push origin HEAD
-          #   gh pr create --title "..." --body "Closes #${ISSUE_NUMBER}"
-          #
           echo "OpenAI Codex provider stub — configure this step for your setup"
           echo "Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # GITHUB COPILOT via gh-aw (stub)
-  # TODO: extend this job for your gh-aw setup.
-  # See https://github.com/github/gh-aw for the CLI reference.
   # ─────────────────────────────────────────────────────────────────────────────
   trigger-copilot:
+    needs: resolve-issue
     if: |
-      github.event.label.name == 'agent-ready' &&
-      vars.AGENT_PROVIDER == 'copilot'
+      needs.resolve-issue.outputs.should_run == 'true' &&
+      needs.resolve-issue.outputs.provider == 'copilot'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -396,31 +445,19 @@ jobs:
       - name: Run Copilot via gh-aw
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
         run: |
-          # TODO: Replace this stub with your gh-aw invocation.
-          # Prerequisites:
-          #   1. Install gh-aw: gh extension install github/gh-aw
-          #   2. Author a workflow markdown file (e.g., .github/workflows/implement-issue.md)
-          #   3. Compile it: gh aw compile implement-issue
-          #
-          # Then invoke the compiled workflow:
-          #   gh aw run implement-issue --issue "${ISSUE_NUMBER}"
-          #
           echo "GitHub Copilot (gh-aw) provider stub — configure this step for your setup"
           echo "Issue #${ISSUE_NUMBER}"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # CUSTOM — repository_dispatch
-  # Emits an event that a listener workflow in this repo can consume.
-  # Note: repository_dispatch events are NOT cross-repo. Your listener workflow
-  # must be in this same repository. For outbound HTTP to an external agent,
-  # replace the github-script step with a curl call.
   # ─────────────────────────────────────────────────────────────────────────────
   trigger-custom:
+    needs: resolve-issue
     if: |
-      github.event.label.name == 'agent-ready' &&
-      vars.AGENT_PROVIDER == 'custom'
+      needs.resolve-issue.outputs.should_run == 'true' &&
+      needs.resolve-issue.outputs.provider == 'custom'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -428,18 +465,27 @@ jobs:
     steps:
       - name: Dispatch agent-ready event
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
         with:
           script: |
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
             await github.rest.repos.createDispatchEvent({
               owner: context.repo.owner,
               repo: context.repo.repo,
               event_type: 'agent-ready',
               client_payload: {
-                issue_number: context.payload.issue.number,
-                issue_title: context.payload.issue.title,
-                issue_body: context.payload.issue.body,
-                issue_url: context.payload.issue.html_url,
-                labels: context.payload.issue.labels.map(l => l.name)
+                issue_number: issue.number,
+                issue_title: issue.title,
+                issue_body: issue.body,
+                issue_url: issue.html_url,
+                labels: issue.labels.map(l => l.name)
               }
             });
-            console.log(`Dispatched agent-ready event for issue #${context.payload.issue.number}`);
+            console.log(`Dispatched agent-ready event for issue #${issue.number}`);

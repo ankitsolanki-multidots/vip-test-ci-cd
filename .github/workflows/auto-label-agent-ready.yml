@@ -6,6 +6,10 @@
 # The downstream agent prompt handles that case by commenting on the issue if it
 # lacks real content.
 #
+# IMPORTANT: Labeling with GITHUB_TOKEN does NOT fire `issues: labeled` on other
+# workflows (GitHub recursion protection). After adding the label we upload an
+# artifact so agent-ready-trigger.yml can start via `workflow_run`.
+#
 # CUSTOMIZATION: Edit the requiredSections array below to add or remove sections
 # that your team's issue template requires. The check looks for exact string matches
 # in the issue body.
@@ -24,9 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      actions: write
+    outputs:
+      labeled: ${{ steps.check.outputs.labeled }}
+      issue_number: ${{ steps.check.outputs.issue_number }}
 
     steps:
       - name: Check issue structure and apply label
+        id: check
         uses: actions/github-script@v7
         with:
           script: |
@@ -59,6 +68,9 @@ jobs:
             const currentLabels = issue.labels.map(l => l.name);
             const hasAgentReadyLabel = currentLabels.includes('agent-ready');
 
+            core.setOutput('issue_number', String(issue.number));
+            core.setOutput('labeled', 'false');
+
             if (hasAllSections && hasScopeBoundaries && hasAcceptanceCriteria) {
               if (!hasAgentReadyLabel) {
                 console.log('Issue meets agent-ready criteria, adding label');
@@ -69,6 +81,8 @@ jobs:
                     issue_number: issue.number,
                     labels: ['agent-ready']
                   });
+                  // GITHUB_TOKEN label events do not cascade — signal downstream via artifact.
+                  core.setOutput('labeled', 'true');
                 } catch (err) {
                   // Most likely cause: label does not exist in the repo yet.
                   // Fix: run the Setup Labels workflow (Actions → Setup Labels → Run workflow).
@@ -89,3 +103,27 @@ jobs:
               console.log('  Scope boundaries (in + out):', hasScopeBoundaries);
               console.log('  Acceptance criteria checkbox:', hasAcceptanceCriteria);
             }
+
+      - name: Write handoff artifact for agent trigger
+        if: steps.check.outputs.labeled == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = context.payload.issue;
+            const payload = {
+              issue_number: issue.number,
+              issue_title: issue.title,
+              labels: issue.labels.map(l => l.name).concat(['agent-ready'])
+            };
+            fs.mkdirSync('agent-ready-handoff', { recursive: true });
+            fs.writeFileSync('agent-ready-handoff/payload.json', JSON.stringify(payload, null, 2));
+            console.log('Wrote handoff payload:', payload);
+
+      - name: Upload handoff artifact
+        if: steps.check.outputs.labeled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-ready-handoff
+          path: agent-ready-handoff/payload.json
+          retention-days: 1
