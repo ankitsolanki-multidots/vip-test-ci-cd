@@ -47,7 +47,8 @@ class Assets {
 		 */
 		add_action( 'enqueue_block_assets', array( $this, 'enqueue_editor_assets' ) );
 		add_action( 'wp_footer', array( $this, 'enqueue_editor_assets' ) );
-		add_action( 'upload_mimes', array( $this, 'add_file_types_to_uploads' ) ); //phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.upload_mimes
+		add_filter( 'upload_mimes', array( $this, 'add_file_types_to_uploads' ) ); //phpcs:ignore WordPressVIPMinimum.Hooks.RestrictedHooks.upload_mimes
+		add_filter( 'wp_check_filetype_and_ext', array( $this, 'fix_svg_filetype_check' ), 10, 5 );
 
 		add_filter( 'script_loader_tag', array( $this, 'script_additional_attrs' ), 10, 2 );
 		add_action( 'wp_print_footer_scripts', array( $this, 'lazy_load_scripts' ) );
@@ -174,7 +175,7 @@ class Assets {
 	}
 
 	/**
-	 * Action Function to add SVG support in file uploads.
+	 * Filter callback to add SVG support in file uploads.
 	 *
 	 * @param array $file_types Supported file types.
 	 *
@@ -183,12 +184,47 @@ class Assets {
 	 */
 	public function add_file_types_to_uploads( array $file_types ): array {
 		if ( is_user_logged_in() && current_user_can( 'administrator' ) ) {
-			$new_filetypes        = array();
-			$new_filetypes['svg'] = 'image/svg+xml';
-			$file_types           = array_merge( $file_types, $new_filetypes );
+			$file_types['svg']  = 'image/svg+xml';
+			$file_types['svgz'] = 'image/svg+xml';
 		}
 
 		return $file_types;
+	}
+
+	/**
+	 * Fix SVG mime type detection during upload verification.
+	 *
+	 * WordPress validates file contents against the extension; SVG is XML and
+	 * often fails that check without this filter.
+	 *
+	 * @param array  $data      File data array.
+	 * @param string $file      Full path to the file.
+	 * @param string $filename  File name.
+	 * @param array  $mimes     Allowed mime types.
+	 * @param string $real_mime Detected mime type of the file.
+	 *
+	 * @return array
+	 * @since 1.0.0
+	 */
+	public function fix_svg_filetype_check( array $data, string $file, string $filename, array $mimes, string $real_mime = '' ): array { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
+		unset( $file, $real_mime );
+
+		if ( ! is_user_logged_in() || ! current_user_can( 'administrator' ) ) {
+			return $data;
+		}
+
+		if ( ! empty( $data['type'] ) ) {
+			return $data;
+		}
+
+		$filetype = wp_check_filetype( $filename, $mimes );
+
+		if ( in_array( $filetype['ext'], array( 'svg', 'svgz' ), true ) ) {
+			$data['ext']  = $filetype['ext'];
+			$data['type'] = 'image/svg+xml';
+		}
+
+		return $data;
 	}
 
 	/**
