@@ -61,8 +61,6 @@ jobs:
     steps:
       - name: Download auto-label handoff (workflow_run only)
         if: github.event_name == 'workflow_run'
-        id: download
-        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: agent-ready-handoff
@@ -89,24 +87,28 @@ jobs:
               labels = context.payload.issue.labels.map(l => l.name);
               console.log('Triggered by manual/PAT label on issue #' + issueNumber);
             } else {
-              // workflow_run path — only proceed when auto-label just applied agent-ready
               const fs = require('fs');
               const path = 'agent-ready-handoff/payload.json';
               if (!fs.existsSync(path)) {
-                console.log('No handoff artifact — auto-label did not newly apply agent-ready. Skipping.');
+                throw new Error('Expected agent-ready-handoff/payload.json from Auto-Label workflow');
+              }
+              const payload = JSON.parse(fs.readFileSync(path, 'utf8'));
+              console.log('Auto-label handoff:', payload);
+
+              if (!payload.should_trigger) {
+                console.log('Handoff says should_trigger=false (no newly applied label). Skipping.');
                 core.setOutput('should_run', 'false');
                 core.setOutput('issue_number', '');
                 core.setOutput('issue_title', '');
                 core.setOutput('is_high', 'false');
                 return;
               }
-              const payload = JSON.parse(fs.readFileSync(path, 'utf8'));
+
               issueNumber = payload.issue_number;
               issueTitle = payload.issue_title;
               labels = payload.labels || [];
               console.log('Triggered by auto-label handoff for issue #' + issueNumber);
 
-              // Refresh labels from live issue (includes complexity:* if present)
               const { data: issue } = await github.rest.issues.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -229,20 +231,70 @@ jobs:
           3. Implement the feature following the acceptance criteria exactly
           4. Stay within the defined scope — "Out of scope" is a hard boundary
           5. Follow the patterns referenced in Technical Notes (read the key files listed there)
-          6. Create a branch, commit your changes, and open a PR:
+          6. Create a branch and push your changes:
              - Branch name: agent/issue-${ISSUE_NUMBER}
-             - PR title should match the issue title
-             - PR body: reference "Closes #${ISSUE_NUMBER}" and summarize what you did
-             - Use the template at .github/PULL_REQUEST_TEMPLATE/agent-generated.md if it exists
-          7. Add the 'agent-generated' label to the PR
-          8. After the PR is open, update the original issue's acceptance criteria:
-             - Check off any criteria your implementation directly satisfies
-             - Leave unchecked anything that requires manual testing, human review, or CI
-             - Use gh issue edit to update the checkbox state in the issue body
+             - Commit with a clear message describing the change
+             - Push the branch to origin
+          7. Do NOT open a pull request — a later CI step opens the PR deterministically
+          8. Do NOT post a comment about being unable to open a PR
 
           If you are blocked or unclear on something, post a comment on the issue
           asking for clarification rather than guessing.
           EOF
+
+      - name: Open PR for agent branch
+        if: needs.resolve-issue.outputs.is_high == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ needs.resolve-issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.resolve-issue.outputs.issue_title }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BRANCH="agent/issue-${ISSUE_NUMBER}"
+
+          if ! git ls-remote --exit-code --heads origin "${BRANCH}"; then
+            echo "Branch ${BRANCH} was not pushed by the agent — cannot open PR"
+            gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body \
+              "⚠️ Agent finished but no branch \`${BRANCH}\` was found. Check the workflow logs."
+            exit 1
+          fi
+
+          # Idempotent: reuse existing open PR for this branch if present
+          EXISTING="$(gh pr list --repo "${REPO}" --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${EXISTING}" ]; then
+            echo "PR #${EXISTING} already exists for ${BRANCH}"
+            PR_NUMBER="${EXISTING}"
+          else
+            TEMPLATE=".github/PULL_REQUEST_TEMPLATE/agent-generated.md"
+            if [ -f "${TEMPLATE}" ]; then
+              BODY="$(sed "s/<!--.*-->//g" "${TEMPLATE}")"
+              BODY="${BODY}
+
+Closes #${ISSUE_NUMBER}"
+            else
+              BODY="Closes #${ISSUE_NUMBER}
+
+Automated implementation by the Cursor agent."
+            fi
+
+            BASE="${DEFAULT_BRANCH:-main}"
+            PR_URL="$(gh pr create \
+              --repo "${REPO}" \
+              --base "${BASE}" \
+              --head "${BRANCH}" \
+              --title "${ISSUE_TITLE}" \
+              --body "${BODY}")"
+            echo "Opened ${PR_URL}"
+            PR_NUMBER="$(echo "${PR_URL}" | grep -oE '[0-9]+$')"
+          fi
+
+          gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "agent-generated" || true
+
+          # Check off auto-satisfiable acceptance criteria where possible is left to humans;
+          # comment with the PR link for visibility.
+          gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body \
+            "✅ Implementation ready: $(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json url --jq .url)"
 
       - name: Check for missing CURSOR_API_KEY
         if: failure()

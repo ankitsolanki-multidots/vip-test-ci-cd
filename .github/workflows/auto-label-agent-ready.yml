@@ -7,8 +7,8 @@
 # lacks real content.
 #
 # IMPORTANT: Labeling with GITHUB_TOKEN does NOT fire `issues: labeled` on other
-# workflows (GitHub recursion protection). After adding the label we upload an
-# artifact so agent-ready-trigger.yml can start via `workflow_run`.
+# workflows (GitHub recursion protection). We always upload a handoff artifact so
+# agent-ready-trigger.yml (via workflow_run) can decide whether to run.
 #
 # CUSTOMIZATION: Edit the requiredSections array below to add or remove sections
 # that your team's issue template requires. The check looks for exact string matches
@@ -29,9 +29,6 @@ jobs:
     permissions:
       issues: write
       actions: write
-    outputs:
-      labeled: ${{ steps.check.outputs.labeled }}
-      issue_number: ${{ steps.check.outputs.issue_number }}
 
     steps:
       - name: Check issue structure and apply label
@@ -39,6 +36,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const issue = context.payload.issue;
             const body = issue.body || '';
 
@@ -52,24 +50,20 @@ jobs:
               '## Technical Notes'
             ];
 
-            // Check if all required sections are present
             const hasAllSections = requiredSections.every(section =>
               body.includes(section)
             );
 
-            // Check if scope has both in/out defined
             const hasInScope = body.includes('**In scope:**') || body.includes('In scope:');
             const hasOutScope = body.includes('**Out of scope:**') || body.includes('Out of scope:');
             const hasScopeBoundaries = hasInScope && hasOutScope;
-
-            // Check if acceptance criteria has at least one checkbox
             const hasAcceptanceCriteria = /- \[[ x]\]/.test(body);
 
             const currentLabels = issue.labels.map(l => l.name);
             const hasAgentReadyLabel = currentLabels.includes('agent-ready');
 
-            core.setOutput('issue_number', String(issue.number));
-            core.setOutput('labeled', 'false');
+            let labeled = false;
+            let shouldTrigger = false;
 
             if (hasAllSections && hasScopeBoundaries && hasAcceptanceCriteria) {
               if (!hasAgentReadyLabel) {
@@ -81,18 +75,17 @@ jobs:
                     issue_number: issue.number,
                     labels: ['agent-ready']
                   });
-                  // GITHUB_TOKEN label events do not cascade — signal downstream via artifact.
-                  core.setOutput('labeled', 'true');
+                  labeled = true;
+                  // New label from GITHUB_TOKEN won't cascade — tell downstream to run.
+                  shouldTrigger = true;
                 } catch (err) {
-                  // Most likely cause: label does not exist in the repo yet.
-                  // Fix: run the Setup Labels workflow (Actions → Setup Labels → Run workflow).
                   core.setFailed(`Failed to add agent-ready label: ${err.message}. Ensure the label exists by running the Setup Labels workflow.`);
+                  return;
                 }
               } else {
-                console.log('Issue already has agent-ready label — skipping');
+                console.log('Issue already has agent-ready label — no new trigger');
               }
             } else {
-              // Log what's missing for debugging
               console.log('Issue does not meet agent-ready criteria:');
               console.log('  All required sections present:', hasAllSections);
               if (!hasAllSections) {
@@ -104,26 +97,26 @@ jobs:
               console.log('  Acceptance criteria checkbox:', hasAcceptanceCriteria);
             }
 
-      - name: Write handoff artifact for agent trigger
-        if: steps.check.outputs.labeled == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const issue = context.payload.issue;
+            // Always write handoff so workflow_run download never fails with "Artifact not found".
+            const labels = Array.from(new Set(
+              currentLabels.concat(labeled || hasAgentReadyLabel ? ['agent-ready'] : [])
+            ));
             const payload = {
               issue_number: issue.number,
               issue_title: issue.title,
-              labels: issue.labels.map(l => l.name).concat(['agent-ready'])
+              labels,
+              labeled,
+              should_trigger: shouldTrigger
             };
             fs.mkdirSync('agent-ready-handoff', { recursive: true });
             fs.writeFileSync('agent-ready-handoff/payload.json', JSON.stringify(payload, null, 2));
             console.log('Wrote handoff payload:', payload);
+            core.setOutput('should_trigger', shouldTrigger ? 'true' : 'false');
 
       - name: Upload handoff artifact
-        if: steps.check.outputs.labeled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: agent-ready-handoff
           path: agent-ready-handoff/payload.json
           retention-days: 1
+          if-no-files-found: error

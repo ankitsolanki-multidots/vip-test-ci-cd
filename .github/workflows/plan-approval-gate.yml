@@ -171,15 +171,66 @@ jobs:
           3. If no plan file exists, implement from the issue context:
              gh issue view ${ISSUE_NUMBER} --repo ${REPO}
           4. Implement the feature per the plan or issue
-          5. Create a branch named agent/issue-${ISSUE_NUMBER}, commit, and open a PR
-             using the template at .github/PULL_REQUEST_TEMPLATE/agent-generated.md if it exists
-          6. Add the 'agent-generated' label to the PR
+          5. Create a branch named agent/issue-${ISSUE_NUMBER}, commit, and push to origin
+          6. Do NOT open a pull request — a later CI step opens the PR deterministically
+          7. Do NOT post a comment about being unable to open a PR
 
           Important:
           - Stay within the issue's defined scope ("Out of scope" is a hard boundary)
-          - Reference the issue number in the PR: "Closes #${ISSUE_NUMBER}"
           - If blocked or uncertain, comment on the issue asking for clarification
           EOF
+
+      - name: Open PR for agent branch
+        if: |
+          steps.permission-check.outputs.allowed == 'true' &&
+          steps.pr-check.outputs.already_running == 'false' &&
+          steps.provider.outputs.provider == 'cursor'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BRANCH="agent/issue-${ISSUE_NUMBER}"
+
+          if ! git ls-remote --exit-code --heads origin "${BRANCH}"; then
+            echo "Branch ${BRANCH} was not pushed by the agent — cannot open PR"
+            gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body \
+              "⚠️ Agent finished but no branch \`${BRANCH}\` was found. Check the workflow logs."
+            exit 1
+          fi
+
+          EXISTING="$(gh pr list --repo "${REPO}" --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${EXISTING}" ]; then
+            echo "PR #${EXISTING} already exists for ${BRANCH}"
+            PR_NUMBER="${EXISTING}"
+          else
+            TEMPLATE=".github/PULL_REQUEST_TEMPLATE/agent-generated.md"
+            if [ -f "${TEMPLATE}" ]; then
+              BODY="$(cat "${TEMPLATE}")
+
+Closes #${ISSUE_NUMBER}"
+            else
+              BODY="Closes #${ISSUE_NUMBER}
+
+Automated implementation by the Cursor agent."
+            fi
+
+            BASE="${DEFAULT_BRANCH:-main}"
+            PR_URL="$(gh pr create \
+              --repo "${REPO}" \
+              --base "${BASE}" \
+              --head "${BRANCH}" \
+              --title "${ISSUE_TITLE}" \
+              --body "${BODY}")"
+            echo "Opened ${PR_URL}"
+            PR_NUMBER="$(echo "${PR_URL}" | grep -oE '[0-9]+$')"
+          fi
+
+          gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "agent-generated" || true
+          gh issue comment "${ISSUE_NUMBER}" --repo "${REPO}" --body \
+            "✅ Implementation ready: $(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json url --jq .url)"
 
       - name: Run Claude Code with /ce-work
         if: |
