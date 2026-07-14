@@ -16,6 +16,44 @@ if ( ! defined( 'TEST_CI_CD_THEME_PATH' ) ) {
 require_once TEST_CI_CD_THEME_PATH . '/includes/traits/trait-singleton.php';
 require_once TEST_CI_CD_THEME_PATH . '/includes/classes/class-register-post-types.php';
 require_once TEST_CI_CD_THEME_PATH . '/includes/classes/class-assets.php';
+require_once TEST_CI_CD_THEME_PATH . '/includes/classes/class-block-base.php';
+require_once TEST_CI_CD_THEME_PATH . '/assets/src/blocks/name-search/class-name-search.php';
+
+if ( ! class_exists( 'WP_Block' ) ) {
+	/**
+	 * Minimal WP_Block stub for unit tests.
+	 */
+	class WP_Block {}
+}
+
+if ( ! class_exists( 'WP_Query' ) ) {
+	/**
+	 * Minimal WP_Query stub for unit tests.
+	 */
+	class WP_Query {
+		/**
+		 * Queried posts.
+		 *
+		 * @var array
+		 */
+		public $posts = array();
+
+		/**
+		 * Found posts count.
+		 *
+		 * @var int
+		 */
+		public $found_posts = 0;
+
+		/**
+		 * Max number of pages.
+		 *
+		 * @var int
+		 */
+		public $max_num_pages = 0;
+	}
+}
+
 
 /**
  * Reset singleton state between tests.

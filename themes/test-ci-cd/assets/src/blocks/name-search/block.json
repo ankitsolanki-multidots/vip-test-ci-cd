@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "name": "test-ci-cd/name-search",
+  "version": "0.1.0",
+  "title": "Name Search",
+  "apiVersion": 3,
+  "category": "test-ci-cd",
+  "icon": "search",
+  "description": "Search results block with hero search form, result grid, and pagination.",
+  "keywords": ["search", "name", "results"],
+  "supports": {
+    "html": false,
+    "align": ["wide", "full"]
+  },
+  "textdomain": "test-ci-cd",
+  "attributes": {
+    "backgroundImageUrl": {
+      "type": "string",
+      "default": ""
+    },
+    "backgroundImageId": {
+      "type": "number",
+      "default": 0
+    },
+    "postsPerPage": {
+      "type": "number",
+      "default": 16
+    },
+    "buttonLabel": {
+      "type": "string",
+      "default": "Search"
+    },
+    "previewTerm": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "editorScript": "file:./index.js",
+  "editorStyle": "file:./index.css",
+  "style": "file:./style-index.css"
+}
